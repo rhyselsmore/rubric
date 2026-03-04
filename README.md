@@ -29,9 +29,11 @@ Rubric lets you define scoring models as a hierarchy of **Model → Phase → Si
 
 ## Usage
 
-The examples below show how to build a model that scores online content for alt-right pipeline characteristics — rhetorical techniques like us-vs-them language, narrative framing patterns like source delegitimization, and gateway potential (where subtle content that appears moderate but funnels toward extremism scores higher than overtly extreme content, because that's how the pipeline actually works).
+### Example 1: Scoring and ranking candidates within a model
 
-### Define a model
+This example builds a model that scores online content for alt-right pipeline characteristics — rhetorical techniques like us-vs-them language, narrative framing patterns like source delegitimization, and gateway potential (where subtle content that appears moderate but funnels toward extremism scores higher than overtly extreme content, because that's how the pipeline actually works).
+
+#### Define a model
 
 ```go
 md := rubric.MustNewModel("pipeline", "Radicalization Pipeline Scoring",
@@ -62,7 +64,7 @@ md := rubric.MustNewModel("pipeline", "Radicalization Pipeline Scoring",
 )
 ```
 
-### Evaluate and score
+#### Evaluate and score
 
 ```go
 ev := md.Evaluate()
@@ -79,7 +81,7 @@ fmt.Println(score)
 
 Signals that are not explicitly set use their default weight — so you only need to record signals you've actually observed.
 
-### Rank and triage candidates
+#### Rank and triage candidates
 
 When you have a batch of flagged content — reported posts, URLs from a crawl,
 items in a moderation queue — use `Classify` to rank them by severity so
@@ -132,6 +134,101 @@ URLs, enum values, etc.):
 candidates := rubric.NewCandidates[int]()
 candidates.Add(8821, ev1)
 candidates.Add(3304, ev2)
+```
+
+### Example 2: Classifying content across models
+
+Evaluations from different models can be placed in the same `Candidates` collection. Each evaluation's normalised score is relative to its own model's range, mapping to [0, 1], which makes scores comparable across models. This lets you answer "which category does this content best fit?"
+
+Here we define two models — one for radicalization pipeline content and one for conspiracy ecosystem content — evaluate the same piece of content against both, and let `Classify` pick the better fit.
+
+```go
+// Model 1: Radicalization pipeline — rhetoric and narrative framing.
+pipeline := rubric.MustNewModel("pipeline", "Radicalization Pipeline",
+    rubric.BuildPhase("rhetoric", "Rhetorical Techniques", 2.0,
+        rubric.BuildSignal("othering", "Us-vs-Them Language", 0,
+            rubric.BuildOutcome("explicit", "Overt dehumanization or scapegoating", 30),
+            rubric.BuildOutcome("coded", "Dog-whistles and coded language", 15),
+            rubric.BuildOutcome("absent", "No othering language detected", -10),
+        ),
+        rubric.BuildSignal("victimhood", "Victimhood Narrative", 0,
+            rubric.BuildOutcome("central", "Persecution is the central narrative", 25),
+            rubric.BuildOutcome("present", "Some victimhood framing", 10),
+            rubric.BuildOutcome("absent", "No victimhood narrative", -5),
+        ),
+    ),
+    rubric.BuildPhase("framing", "Narrative Framing", 1.5,
+        rubric.BuildSignal("delegitimization", "Source Delegitimization", 0,
+            rubric.BuildOutcome("blanket", "Blanket rejection of mainstream sources", 30),
+            rubric.BuildOutcome("selective", "Selective distrust of specific outlets", 15),
+            rubric.BuildOutcome("credible", "Cites credible, verifiable sources", -10),
+        ),
+        rubric.BuildSignal("gateway", "Gateway Potential", 0,
+            rubric.BuildOutcome("overt", "Overtly extreme, easily identified", 15),
+            rubric.BuildOutcome("subtle", "Appears moderate but funnels toward extremism", 25),
+            rubric.BuildOutcome("none", "No gateway characteristics", -10),
+        ),
+    ),
+)
+
+// Model 2: Conspiracy ecosystem — epistemic patterns and community dynamics.
+conspiracy := rubric.MustNewModel("conspiracy", "Conspiracy Ecosystem",
+    rubric.BuildPhase("epistemics", "Epistemic Patterns", 2.0,
+        rubric.BuildSignal("unfalsifiable", "Unfalsifiable Claims", 0,
+            rubric.BuildOutcome("central", "Core claims are structured to be unprovable", 30),
+            rubric.BuildOutcome("some", "Some claims resist falsification", 15),
+            rubric.BuildOutcome("testable", "Claims are specific and testable", -10),
+        ),
+        rubric.BuildSignal("hidden_knowledge", "Hidden Knowledge Claims", 0,
+            rubric.BuildOutcome("revelation", "Positions audience as enlightened insiders", 25),
+            rubric.BuildOutcome("hints", "Implies suppressed or secret information", 10),
+            rubric.BuildOutcome("none", "No special knowledge framing", -5),
+        ),
+    ),
+    rubric.BuildPhase("community", "Community Dynamics", 1.5,
+        rubric.BuildSignal("authority_rejection", "Authority Rejection", 0,
+            rubric.BuildOutcome("total", "All institutional authority is illegitimate", 30),
+            rubric.BuildOutcome("selective", "Specific institutions are compromised", 15),
+            rubric.BuildOutcome("trusting", "Accepts institutional expertise", -10),
+        ),
+        rubric.BuildSignal("apophenia", "Pattern Apophenia", 0,
+            rubric.BuildOutcome("dense", "Everything is connected, nothing is coincidence", 25),
+            rubric.BuildOutcome("some", "Overreads patterns in unrelated events", 10),
+            rubric.BuildOutcome("none", "No forced pattern-matching", -10),
+        ),
+    ),
+)
+
+// Evaluate a piece of content against both models.
+// This content has strong conspiracy signals but weak pipeline signals.
+candidates := rubric.NewCandidates[string]()
+
+pipelineEv := pipeline.Evaluate()
+pipelineEv.Set("rhetoric", "othering", "absent")
+pipelineEv.Set("rhetoric", "victimhood", "present")
+pipelineEv.Set("framing", "delegitimization", "selective")
+pipelineEv.Set("framing", "gateway", "none")
+candidates.Add("pipeline", pipelineEv)
+
+conspiracyEv := conspiracy.Evaluate()
+conspiracyEv.Set("epistemics", "unfalsifiable", "central")
+conspiracyEv.Set("epistemics", "hidden_knowledge", "revelation")
+conspiracyEv.Set("community", "authority_rejection", "total")
+conspiracyEv.Set("community", "apophenia", "dense")
+candidates.Add("conspiracy", conspiracyEv)
+
+result, err := rubric.Classify(candidates)
+if err != nil {
+    log.Fatal(err)
+}
+
+category, score := result.Best()
+fmt.Printf("Best fit: %s (%.0f%% match)\n", category, score.Normalized()*100)
+
+// Apply a minimum quality gate.
+if score.Normalized() < 0.5 {
+    fmt.Println("No confident classification")
+}
 ```
 
 ## How scoring works
