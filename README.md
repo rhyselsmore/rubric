@@ -1,6 +1,8 @@
 # rubric
 
+[![CI](https://github.com/rhyselsmore/rubric/actions/workflows/ci.yml/badge.svg)](https://github.com/rhyselsmore/rubric/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/rhyselsmore/rubric.svg)](https://pkg.go.dev/github.com/rhyselsmore/rubric)
+[![codecov](https://codecov.io/gh/rhyselsmore/rubric/branch/main/graph/badge.svg)](https://codecov.io/gh/rhyselsmore/rubric)
 
 A weighted scoring framework for multi-phase signal evaluation and candidate classification.
 
